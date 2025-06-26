@@ -79,11 +79,30 @@ try {
         throw new Exception("No hay productos en el carrito.");
     }
 
-    // Procesar ítems
+    // Procesar ítems con cálculo de IVA
     $procesarItems = function (&$item, $tipo) {
         $item['tipo'] = $tipo;
         $precio = $item['precio'] ?? $item['precio_unitario'];
-        $item['subtotal'] = number_format($precio * $item['cantidad'], 2, '.', '');
+        
+        // Calcular IVA (16%) solo para mercancía y ebooks
+        $aplicaIva = in_array($tipo, ['mercancia', 'ebook']);
+        $item['aplica_iva'] = $aplicaIva;
+        
+        if ($aplicaIva) {
+            $item['subtotal_sin_iva'] = $precio * $item['cantidad'];
+            $item['iva'] = $item['subtotal_sin_iva'] * 0.16;
+            $item['subtotal'] = $item['subtotal_sin_iva'] + $item['iva'];
+        } else {
+            $item['subtotal_sin_iva'] = $precio * $item['cantidad'];
+            $item['iva'] = 0;
+            $item['subtotal'] = $item['subtotal_sin_iva'];
+        }
+        
+        // Formatear para consistencia
+        $item['subtotal'] = number_format($item['subtotal'], 2, '.', '');
+        $item['subtotal_sin_iva'] = number_format($item['subtotal_sin_iva'], 2, '.', '');
+        $item['iva'] = number_format($item['iva'], 2, '.', '');
+        
         return $item;
     };
 
@@ -105,6 +124,10 @@ try {
 
     // Combinar todos los items
     $items = array_merge($itemsMercancia, $itemsLibros, $itemsEbooks, $itemsWebinars);
+    
+    // Calcular totales
+    $subtotal_sin_iva = array_sum(array_column($items, 'subtotal_sin_iva'));
+    $total_iva = array_sum(array_column($items, 'iva'));
     $total = array_sum(array_column($items, 'subtotal'));
 
     // Crear line_items para todos los productos
@@ -167,6 +190,15 @@ try {
                     'type' => 'spei'
                 ]
             ]
+        ],
+        // Add metadata for better tracking
+        'metadata' => [
+            'user_id' => (string) $user_id,
+            'payment_type' => 'spei',
+            'created_at' => date('Y-m-d H:i:s'),
+            'subtotal_sin_iva' => (string) $subtotal_sin_iva,
+            'total_iva' => (string) $total_iva,
+            'total_con_iva' => (string) $total
         ]
     ]);
 
@@ -208,8 +240,8 @@ try {
     $db4->commit();
 
     // Enviar correos
-    enviarConfirmacionCorreo($email, $nombre, $items, $total, $banco, $clabe, $cuenta, $beneficiario, $referencia, $vence);
-    enviarAlertaVenta("tienda_correo@imcyc.com", $nombre, $items, $total);
+    enviarConfirmacionCorreo($email, $nombre, $items, $subtotal_sin_iva, $total_iva, $total, $banco, $clabe, $cuenta, $beneficiario, $referencia, $vence);
+    enviarAlertaVenta("tienda_correo@imcyc.com", $nombre, $items, $subtotal_sin_iva, $total_iva, $total);
 
 } catch (Exception $e) {
     $db->rollBack();
@@ -220,7 +252,7 @@ try {
     die("Ocurrió un error al procesar tu pago: " . $e->getMessage());
 }
 
-function enviarConfirmacionCorreo($para, $nombre, $items, $total, $banco, $clabe, $cuenta, $beneficiario, $referencia, $vence)
+function enviarConfirmacionCorreo($para, $nombre, $items, $subtotal_sin_iva, $total_iva, $total, $banco, $clabe, $cuenta, $beneficiario, $referencia, $vence)
 {
     $mail = new PHPMailer(true);
     try {
@@ -247,7 +279,7 @@ function enviarConfirmacionCorreo($para, $nombre, $items, $total, $banco, $clabe
         // Configuración del remitente y destinatario
         $mail->setFrom('tiendaimcyc@imcyc.com', 'Tienda IMCYC');
         $mail->addAddress($para, $nombre);
-        $mail->Subject = 'Confirmación de Pedido - Tienda IMCYC';
+        $mail->Subject = 'Confirmación de Pedido - Transferencia SPEI';
 
         // Generar resumen de productos
         $resumen = '';
@@ -263,22 +295,30 @@ function enviarConfirmacionCorreo($para, $nombre, $items, $total, $banco, $clabe
             $tipo = $item['tipo'];
             $icono = $tipoIconos[$tipo] ?? '🛍️';
             $subtotal = number_format($item['subtotal'], 2);
+            $ivaItem = number_format($item['iva'], 2);
 
             // Información adicional para webinars
             $infoAdicional = '';
-            if ($tipo === 'webinar' && isset($item['fecha'])) {
-                $fechaWebinar = date('d/m/Y H:i', strtotime($item['fecha']));
-                $infoAdicional = "<br><small style='color: #666;'>📅 {$fechaWebinar}</small>";
+            if ($tipo === 'webinar') {
+                if (!empty($item['fecha'])) {
+                    $fechaWebinar = date('d/m/Y H:i', strtotime($item['fecha']));
+                    $infoAdicional .= "<br><small style='color: #666;'>📅 {$fechaWebinar}</small>";
+                }
                 if (!empty($item['duracion'])) {
                     $infoAdicional .= "<br><small style='color: #666;'>⏱️ {$item['duracion']}</small>";
                 }
             }
+
+            $ivaInfo = $item['aplica_iva'] ? 
+                "<br><small style='color: #28a745;'>✓ IVA: \${$ivaItem}</small>" : 
+                "<br><small style='color: #6c757d;'>○ Exento de IVA</small>";
 
             $resumen .= "<tr>
                 <td style='padding: 10px; border-bottom: 1px solid #eee;'>
                     {$icono} {$nombreProducto}
                     <br><small style='color: #666;'>" . ucfirst($tipo) . "</small>
                     {$infoAdicional}
+                    {$ivaInfo}
                 </td>
                 <td style='padding: 10px; border-bottom: 1px solid #eee; text-align: center;'>
                     {$item['cantidad']}
@@ -289,6 +329,8 @@ function enviarConfirmacionCorreo($para, $nombre, $items, $total, $banco, $clabe
             </tr>";
         }
 
+        $subtotalFormateado = number_format($subtotal_sin_iva, 2);
+        $ivaFormateado = number_format($total_iva, 2);
         $totalFormateado = number_format($total, 2);
         $nombreSeguro = htmlspecialchars($nombre, ENT_QUOTES, 'UTF-8');
         $bancoSeguro = htmlspecialchars($banco, ENT_QUOTES, 'UTF-8');
@@ -318,6 +360,10 @@ function enviarConfirmacionCorreo($para, $nombre, $items, $total, $banco, $clabe
                 <div style='padding: 30px;'>
                     <!-- Total destacado -->
                     <div style='background-color: #f8f9fa; border: 2px solid #28a745; border-radius: 10px; padding: 20px; text-align: center; margin-bottom: 30px;'>
+                        <div style='margin-bottom: 10px;'>
+                            <div style='font-size: 16px; color: #666;'>Subtotal: \${$subtotalFormateado}</div>
+                            <div style='font-size: 16px; color: #666;'>IVA (16%): \${$ivaFormateado}</div>
+                        </div>
                         <h2 style='color: #28a745; margin: 0; font-size: 24px;'>Total del pedido: \${$totalFormateado}</h2>
                     </div>
 
@@ -337,6 +383,20 @@ function enviarConfirmacionCorreo($para, $nombre, $items, $total, $banco, $clabe
                             <tbody>
                                 {$resumen}
                             </tbody>
+                            <tfoot>
+                                <tr style='background-color: #f8f9fa;'>
+                                    <td colspan='2' style='padding: 10px; text-align: right; font-weight: bold;'>Subtotal:</td>
+                                    <td style='padding: 10px; text-align: right; font-weight: bold;'>\${$subtotalFormateado}</td>
+                                </tr>
+                                <tr style='background-color: #f8f9fa;'>
+                                    <td colspan='2' style='padding: 10px; text-align: right; font-weight: bold;'>IVA (16%):</td>
+                                    <td style='padding: 10px; text-align: right; font-weight: bold;'>\${$ivaFormateado}</td>
+                                </tr>
+                                <tr style='background-color: #28a745; color: white;'>
+                                    <td colspan='2' style='padding: 15px; text-align: right; font-weight: bold; font-size: 16px;'>TOTAL:</td>
+                                    <td style='padding: 15px; text-align: right; font-weight: bold; font-size: 16px;'>\${$totalFormateado}</td>
+                                </tr>
+                            </tfoot>
                         </table>
                     </div>
 
@@ -385,7 +445,8 @@ function enviarConfirmacionCorreo($para, $nombre, $items, $total, $banco, $clabe
                                 <a href='mailto:cursos@imcyc.com' style='color: #0c5460; text-decoration: none; font-weight: bold;'>cursos@imcyc.com</a>
                             </li>
                             <li style='margin-bottom: 8px;'>Incluye tu nombre completo en el asunto del correo</li>
-                            <li>Una vez verificado el pago, procesaremos tu pedido</li>
+                            <li style='margin-bottom: 8px;'>Una vez verificado el pago, procesaremos tu pedido</li>
+                            <li><strong>IVA incluido</strong> en mercancía y ebooks según legislación vigente</li>
                         </ul>
                     </div>
 
@@ -420,7 +481,7 @@ function enviarConfirmacionCorreo($para, $nombre, $items, $total, $banco, $clabe
     }
 }
 
-function enviarAlertaVenta($para, $cliente, $items, $total)
+function enviarAlertaVenta($para, $cliente, $items, $subtotal_sin_iva, $total_iva, $total)
 {
     $mail = new PHPMailer(true);
     try {
@@ -447,11 +508,17 @@ function enviarAlertaVenta($para, $cliente, $items, $total)
         // Configuración del remitente y destinatario
         $mail->setFrom('tiendaimcyc@imcyc.com', 'Notificaciones Tienda IMCYC');
         $mail->addAddress($para);
-        $mail->Subject = '🛒 Nueva Venta Realizada - Tienda IMCYC';
+        $mail->Subject = '🛒 Nueva Venta Realizada - Transferencia SPEI';
 
         // Generar resumen de productos para administrador
         $resumen = '';
         $totalPorTipo = [
+            'mercancia' => 0,
+            'libro' => 0,
+            'ebook' => 0,
+            'webinar' => 0
+        ];
+        $ivaPorTipo = [
             'mercancia' => 0,
             'libro' => 0,
             'ebook' => 0,
@@ -471,6 +538,7 @@ function enviarAlertaVenta($para, $cliente, $items, $total)
             $icono = $tipoIconos[$tipo] ?? '🛍️';
             $subtotal = floatval($item['subtotal']);
             $totalPorTipo[$tipo] += $subtotal;
+            $ivaPorTipo[$tipo] += floatval($item['iva']);
 
             // Información adicional para webinars
             $infoAdicional = '';
@@ -479,13 +547,15 @@ function enviarAlertaVenta($para, $cliente, $items, $total)
                 $infoAdicional = "<br><small style='color: #666;'>📅 {$fechaWebinar}</small>";
             }
 
+            $ivaInfo = $item['aplica_iva'] ? " (+ IVA)" : " (Exento)";
+
             $resumen .= "<tr>
                 <td style='padding: 8px; border-bottom: 1px solid #eee;'>
                     {$icono} {$nombreProducto}
                     {$infoAdicional}
                 </td>
                 <td style='padding: 8px; border-bottom: 1px solid #eee; text-align: center;'>
-                    " . ucfirst($tipo) . "
+                    " . ucfirst($tipo) . "{$ivaInfo}
                 </td>
                 <td style='padding: 8px; border-bottom: 1px solid #eee; text-align: center;'>
                     {$item['cantidad']}
@@ -501,13 +571,16 @@ function enviarAlertaVenta($para, $cliente, $items, $total)
         foreach ($totalPorTipo as $tipo => $totalTipo) {
             if ($totalTipo > 0) {
                 $icono = $tipoIconos[$tipo];
+                $ivaInfo = $ivaPorTipo[$tipo] > 0 ? " (IVA: \$" . number_format($ivaPorTipo[$tipo], 2) . ")" : " (Exento)";
                 $resumenTipos .= "<tr>
                     <td style='padding: 8px; border-bottom: 1px solid #ddd;'>{$icono} " . ucfirst($tipo) . "</td>
-                    <td style='padding: 8px; border-bottom: 1px solid #ddd; text-align: right; font-weight: bold;'>\$" . number_format($totalTipo, 2) . "</td>
+                    <td style='padding: 8px; border-bottom: 1px solid #ddd; text-align: right; font-weight: bold;'>\$" . number_format($totalTipo, 2) . "{$ivaInfo}</td>
                 </tr>";
             }
         }
 
+        $subtotalFormateado = number_format($subtotal_sin_iva, 2);
+        $ivaFormateado = number_format($total_iva, 2);
         $totalFormateado = number_format($total, 2);
         $clienteSeguro = htmlspecialchars($cliente, ENT_QUOTES, 'UTF-8');
         $fechaHora = date('d/m/Y H:i:s');
@@ -526,7 +599,7 @@ function enviarAlertaVenta($para, $cliente, $items, $total)
                 <!-- Header -->
                 <div style='background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; padding: 25px; text-align: center;'>
                     <h1 style='margin: 0; font-size: 26px;'>🛒 Nueva Venta Realizada</h1>
-                    <p style='margin: 10px 0 0 0; font-size: 16px;'>{$fechaHora}</p>
+                    <p style='margin: 10px 0 0 0; font-size: 16px;'>Transferencia SPEI - {$fechaHora}</p>
                 </div>
 
                 <!-- Información del cliente -->
@@ -534,7 +607,11 @@ function enviarAlertaVenta($para, $cliente, $items, $total)
                     <div style='background-color: #f8f9fa; border-left: 4px solid #28a745; padding: 20px; margin-bottom: 25px;'>
                         <h3 style='color: #155724; margin-top: 0;'>👤 Información del Cliente</h3>
                         <p style='margin: 5px 0; font-size: 18px;'><strong>Cliente:</strong> {$clienteSeguro}</p>
-                        <p style='margin: 5px 0; font-size: 20px; color: #28a745;'><strong>Total de la venta:</strong> \${$totalFormateado}</p>
+                        <div style='margin-top: 15px;'>
+                            <div style='font-size: 16px; color: #666;'>Subtotal: \${$subtotalFormateado}</div>
+                            <div style='font-size: 16px; color: #666;'>IVA (16%): \${$ivaFormateado}</div>
+                            <div style='font-size: 20px; color: #28a745; font-weight: bold;'>Total: \${$totalFormateado}</div>
+                        </div>
                     </div>
 
                     <!-- Resumen por tipo de producto -->
@@ -572,6 +649,20 @@ function enviarAlertaVenta($para, $cliente, $items, $total)
                             <tbody>
                                 {$resumen}
                             </tbody>
+                            <tfoot>
+                                <tr style='background-color: #f8f9fa;'>
+                                    <td colspan='3' style='padding: 10px; text-align: right; font-weight: bold;'>SUBTOTAL:</td>
+                                    <td style='padding: 10px; text-align: right; font-weight: bold;'>\${$subtotalFormateado}</td>
+                                </tr>
+                                <tr style='background-color: #f8f9fa;'>
+                                    <td colspan='3' style='padding: 10px; text-align: right; font-weight: bold;'>IVA (16%):</td>
+                                    <td style='padding: 10px; text-align: right; font-weight: bold;'>\${$ivaFormateado}</td>
+                                </tr>
+                                <tr style='background-color: #28a745; color: white; font-weight: bold; font-size: 16px;'>
+                                    <td colspan='3' style='padding: 15px; text-align: right;'>TOTAL GENERAL:</td>
+                                    <td style='padding: 15px; text-align: right;'>\${$totalFormateado}</td>
+                                </tr>
+                            </tfoot>
                         </table>
                     </div>
 
@@ -585,7 +676,8 @@ function enviarAlertaVenta($para, $cliente, $items, $total)
                             </a>
                         </p>
                         <p style='color: #856404; margin: 5px 0; font-size: 14px;'>
-                            Una vez recibido el comprobante, procesar el pedido correspondiente.
+                            Una vez recibido el comprobante, procesar el pedido correspondiente.<br>
+                            <strong>IVA aplicado</strong> según normativa fiscal vigente.
                         </p>
                     </div>
                 </div>
@@ -616,7 +708,7 @@ function enviarAlertaVenta($para, $cliente, $items, $total)
 
 <head>
     <meta charset="UTF-8">
-    <title>Confirmación de Compra - Tienda IMCYC</title>
+    <title>Confirmación de Compra - Transferencia SPEI</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
@@ -685,6 +777,17 @@ function enviarAlertaVenta($para, $cliente, $items, $total)
             color: #6c757d;
             margin-top: 0.25rem;
         }
+
+        .iva-info {
+            font-size: 0.8rem;
+            color: #28a745;
+            font-weight: bold;
+        }
+
+        .no-iva-info {
+            font-size: 0.8rem;
+            color: #6c757d;
+        }
     </style>
 </head>
 
@@ -702,28 +805,37 @@ function enviarAlertaVenta($para, $cliente, $items, $total)
                     <div class="col-md-8">
                         <ul class="list-group">
                             <?php foreach ($items as $item): ?>
-                                <li class="list-group-item d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <strong><?= htmlspecialchars($item['nombre'] ?? $item['titulo']) ?></strong>
-                                        <span class="producto-tipo d-block">(<?= ucfirst($item['tipo']) ?>)</span>
-                                        <?php if ($item['tipo'] === 'webinar'): ?>
-                                            <?php if (!empty($item['fecha'])): ?>
-                                                <div class="webinar-info">📅 <?= date('d/m/Y H:i', strtotime($item['fecha'])) ?></div>
+                                <li class="list-group-item">
+                                    <div class="d-flex justify-content-between align-items-start">
+                                        <div class="flex-grow-1">
+                                            <strong><?= htmlspecialchars($item['nombre'] ?? $item['titulo']) ?></strong>
+                                            <span class="producto-tipo d-block">(<?= ucfirst($item['tipo']) ?>)</span>
+                                            
+                                            <?php if ($item['tipo'] === 'webinar'): ?>
+                                                <?php if (!empty($item['fecha'])): ?>
+                                                    <div class="webinar-info">📅 <?= date('d/m/Y H:i', strtotime($item['fecha'])) ?></div>
+                                                <?php endif; ?>
+                                                <?php if (!empty($item['duracion'])): ?>
+                                                    <div class="webinar-info">⏱️ <?= htmlspecialchars($item['duracion']) ?></div>
+                                                <?php endif; ?>
                                             <?php endif; ?>
-                                            <?php if (!empty($item['duracion'])): ?>
-                                                <div class="webinar-info">⏱️ <?= htmlspecialchars($item['duracion']) ?></div>
+                                            
+                                            <?php if ($item['aplica_iva']): ?>
+                                                <div class="iva-info">✓ IVA incluido</div>
+                                            <?php else: ?>
+                                                <div class="no-iva-info">○ Exento de IVA</div>
                                             <?php endif; ?>
-                                        <?php endif; ?>
-                                    </div>
-                                    <div class="text-end">
-                                        <span class="badge bg-primary rounded-pill mb-1">
-                                            Cantidad: <?= $item['cantidad'] ?>
-                                        </span>
-                                        <div class="text-muted">
-                                            $<?= number_format($item['precio'] ?? $item['precio_unitario'], 2) ?> c/u
                                         </div>
-                                        <div class="fw-bold">
-                                            $<?= $item['subtotal'] ?>
+                                        <div class="text-end">
+                                            <span class="badge bg-primary rounded-pill mb-1">
+                                                Cantidad: <?= $item['cantidad'] ?>
+                                            </span>
+                                            <div class="text-muted">
+                                                $<?= number_format($item['precio'] ?? $item['precio_unitario'], 2) ?> c/u
+                                            </div>
+                                            <div class="fw-bold">
+                                                $<?= $item['subtotal'] ?>
+                                            </div>
                                         </div>
                                     </div>
                                 </li>
@@ -732,9 +844,22 @@ function enviarAlertaVenta($para, $cliente, $items, $total)
                     </div>
                     <div class="col-md-4">
                         <div class="card bg-light">
-                            <div class="card-body text-center">
-                                <h5 class="card-title">Total a Pagar</h5>
-                                <p class="total-amount">$<?= number_format($total, 2) ?></p>
+                            <div class="card-body">
+                                <h5 class="card-title text-center">Resumen de Pago</h5>
+                                <table class="table table-sm mb-0">
+                                    <tr>
+                                        <td>Subtotal:</td>
+                                        <td class="text-end">$<?= number_format($subtotal_sin_iva, 2) ?></td>
+                                    </tr>
+                                    <tr>
+                                        <td>IVA (16%):</td>
+                                        <td class="text-end">$<?= number_format($total_iva, 2) ?></td>
+                                    </tr>
+                                    <tr class="table-success">
+                                        <td><strong>Total:</strong></td>
+                                        <td class="text-end"><strong>$<?= number_format($total, 2) ?></strong></td>
+                                    </tr>
+                                </table>
                             </div>
                         </div>
                     </div>
@@ -753,7 +878,7 @@ function enviarAlertaVenta($para, $cliente, $items, $total)
                     </div>
                     <div class="col-md-6">
                         <ul class="list-unstyled">
-                            <li class="mb-2"><strong>Beneficiario:</strong> IMCYC</li>
+                            <li class="mb-2"><strong>Beneficiario:</strong> <?= htmlspecialchars($beneficiario) ?></li>
                             <li class="mb-2"><strong>Referencia:</strong>
                                 <code><?= htmlspecialchars($referencia) ?></code>
                             </li>
@@ -767,6 +892,15 @@ function enviarAlertaVenta($para, $cliente, $items, $total)
                     <a href="mailto:cursos@imcyc.com" class="alert-link">cursos@imcyc.com</a>
                     para procesar tu pedido.
                 </div>
+            </div>
+
+            <div class="alert alert-info">
+                <h6 class="alert-heading">📋 Información Fiscal:</h6>
+                <ul class="mb-0">
+                    <li><strong>Mercancía y Ebooks:</strong> IVA del 16% incluido</li>
+                    <li><strong>Libros y Webinars:</strong> Exentos de IVA según legislación vigente</li>
+                    <li>El desglose fiscal se muestra en el resumen de compra</li>
+                </ul>
             </div>
 
             <div class="d-grid gap-2 d-md-flex justify-content-md-center mt-4">
