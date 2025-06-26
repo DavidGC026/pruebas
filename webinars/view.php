@@ -9,6 +9,48 @@ $cartItems = $cartItems ?? [];
 $cartItemCount = $cartItemCount ?? 0;
 $mensaje = $mensaje ?? '';
 $error = $error ?? '';
+
+// Función para obtener imagen de webinar
+function getWebinarImageUrl($imagen_webinar = null, $titulo = '')
+{
+    // Si tenemos la ruta de la imagen en la tabla
+    if ($imagen_webinar) {
+        // Extraer solo el nombre del archivo de la ruta de la tabla
+        $filename = basename($imagen_webinar);
+        $imagePath = 'covers/webinars/' . $filename;
+        if (file_exists($imagePath)) {
+            return $imagePath;
+        }
+        
+        // Si no existe el archivo específico, intentar con diferentes extensiones
+        $nameWithoutExt = pathinfo($filename, PATHINFO_FILENAME);
+        $extensions = ['jpg', 'jpeg', 'png', 'webp', 'JPG', 'JPEG', 'PNG'];
+        
+        foreach ($extensions as $ext) {
+            $testPath = 'covers/webinars/' . $nameWithoutExt . '.' . $ext;
+            if (file_exists($testPath)) {
+                return $testPath;
+            }
+        }
+    }
+    
+    // Fallback: intentar generar nombre basado en el título
+    if ($titulo) {
+        $cleanTitle = str_replace(' ', '_', strtolower($titulo));
+        $cleanTitle = preg_replace('/[^A-Za-z0-9_]/', '', $cleanTitle);
+        
+        $extensions = ['jpg', 'jpeg', 'png', 'webp'];
+        foreach ($extensions as $ext) {
+            $testPath = 'covers/webinars/' . $cleanTitle . '.' . $ext;
+            if (file_exists($testPath)) {
+                return $testPath;
+            }
+        }
+    }
+    
+    // Imagen por defecto para webinars
+    return 'covers/default_webinar.svg';
+}
 ?>
 
 <!DOCTYPE html>
@@ -51,18 +93,15 @@ $error = $error ?? '';
         <?php foreach ($webinars as $webinar): ?>
             <div class="webinar-card">
                 <div class="webinar-thumbnail">
-                    <?php if (!empty($webinar['imagen'])): ?>
-                        <img src="<?= htmlspecialchars($webinar['imagen']) ?>"
-                             alt="Imagen de <?= htmlspecialchars($webinar['titulo']) ?>"
-                             onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                        <div class="thumbnail-placeholder" style="display: none;">
-                            <i class="fas fa-video"></i>
-                        </div>
-                    <?php else: ?>
-                        <div class="thumbnail-placeholder">
-                            <i class="fas fa-video"></i>
-                        </div>
-                    <?php endif; ?>
+                    <?php 
+                    $imageUrl = getWebinarImageUrl($webinar['imagen'] ?? null, $webinar['titulo'] ?? '');
+                    ?>
+                    <img src="<?= htmlspecialchars($imageUrl) ?>"
+                         alt="Imagen de <?= htmlspecialchars($webinar['titulo']) ?>"
+                         onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                    <div class="thumbnail-placeholder" style="display: none;">
+                        <i class="fas fa-video"></i>
+                    </div>
                 </div>
                 <div class="webinar-info">
                     <h3 class="webinar-title"><?= htmlspecialchars($webinar['titulo']) ?></h3>
@@ -150,18 +189,15 @@ $error = $error ?? '';
             <?php foreach ($cartItems as $item): ?>
                 <li class="cart-item">
                     <div class="cart-item-image">
-                        <?php if (!empty($item['imagen'])): ?>
-                            <img src="<?= htmlspecialchars($item['imagen']) ?>"
-                                 alt="<?= htmlspecialchars($item['titulo']) ?>"
-                                 onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                            <div class="cart-thumbnail-placeholder" style="display: none;">
-                                <i class="fas fa-video"></i>
-                            </div>
-                        <?php else: ?>
-                            <div class="cart-thumbnail-placeholder">
-                                <i class="fas fa-video"></i>
-                            </div>
-                        <?php endif; ?>
+                        <?php 
+                        $cartImageUrl = getWebinarImageUrl($item['imagen'] ?? null, $item['titulo'] ?? '');
+                        ?>
+                        <img src="<?= htmlspecialchars($cartImageUrl) ?>"
+                             alt="<?= htmlspecialchars($item['titulo']) ?>"
+                             onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                        <div class="cart-thumbnail-placeholder" style="display: none;">
+                            <i class="fas fa-video"></i>
+                        </div>
                     </div>
                     <div class="item-info">
                         <h5><?= htmlspecialchars($item['titulo']) ?></h5>
