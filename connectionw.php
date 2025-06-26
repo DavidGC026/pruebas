@@ -189,6 +189,17 @@ class DatabaseW
         return (int) $stmt->fetchColumn();
     }
 
+    public function getCartTotal($cart_id)
+    {
+        $stmt = $this->pdo->prepare("
+            SELECT total
+            FROM carritos_webinars
+            WHERE id = ?
+        ");
+        $stmt->execute([$cart_id]);
+        return (float) $stmt->fetchColumn();
+    }
+
     public function clearCart($user_id)
     {
         $cart_id = $this->getOrCreateUserCart($user_id);
