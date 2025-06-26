@@ -8,6 +8,7 @@ $webinars = $webinars ?? [];
 $cartItems = $cartItems ?? [];
 $cartItemCount = $cartItemCount ?? 0;
 $mensaje = $mensaje ?? '';
+$error = $error ?? '';
 ?>
 
 <!DOCTYPE html>
@@ -24,15 +25,34 @@ $mensaje = $mensaje ?? '';
     <div class="alert alert-webinar"><?= htmlspecialchars($mensaje) ?></div>
 <?php endif; ?>
 
+<?php if (!empty($error)): ?>
+    <div class="alert alert-error"><?= htmlspecialchars($error) ?></div>
+<?php endif; ?>
+
 <h2 class="webinar-section-title">Catálogo de Webinars</h2>
+
+<!-- Filtros por categoría -->
+<?php if (!empty($categories)): ?>
+<div class="category-filters">
+    <a href="?section=webinars" class="filter-btn <?= !isset($_GET['category']) ? 'active' : '' ?>">
+        Todos
+    </a>
+    <?php foreach ($categories as $category): ?>
+        <a href="?section=webinars&category=<?= urlencode($category) ?>" 
+           class="filter-btn <?= (isset($_GET['category']) && $_GET['category'] === $category) ? 'active' : '' ?>">
+            <?= htmlspecialchars($category) ?>
+        </a>
+    <?php endforeach; ?>
+</div>
+<?php endif; ?>
 
 <div class="webinar-grid">
     <?php if (!empty($webinars)): ?>
         <?php foreach ($webinars as $webinar): ?>
             <div class="webinar-card">
                 <div class="webinar-thumbnail">
-                    <?php if (!empty($webinar['imagen_url'])): ?>
-                        <img src="<?= htmlspecialchars($webinar['imagen_url']) ?>"
+                    <?php if (!empty($webinar['imagen'])): ?>
+                        <img src="<?= htmlspecialchars($webinar['imagen']) ?>"
                              alt="Imagen de <?= htmlspecialchars($webinar['titulo']) ?>"
                              onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                         <div class="thumbnail-placeholder" style="display: none;">
@@ -46,8 +66,7 @@ $mensaje = $mensaje ?? '';
                 </div>
                 <div class="webinar-info">
                     <h3 class="webinar-title"><?= htmlspecialchars($webinar['titulo']) ?></h3>
-                    <p class="webinar-instructor"><?= htmlspecialchars($webinar['instructor'] ?? 'IMCYC') ?></p>
-
+                    
                     <?php if (!empty($webinar['descripcion'])): ?>
                         <p class="webinar-description"><?= htmlspecialchars(substr($webinar['descripcion'], 0, 100)) ?><?= strlen($webinar['descripcion']) > 100 ? '...' : '' ?></p>
                     <?php endif; ?>
@@ -56,8 +75,11 @@ $mensaje = $mensaje ?? '';
                         <?php if (!empty($webinar['duracion'])): ?>
                             <span class="webinar-duration">⏱️ <?= htmlspecialchars($webinar['duracion']) ?></span>
                         <?php endif; ?>
-                        <?php if (!empty($webinar['fecha_webinar'])): ?>
-                            <span class="webinar-date">📅 <?= date('d/m/Y', strtotime($webinar['fecha_webinar'])) ?></span>
+                        <?php if (!empty($webinar['fecha'])): ?>
+                            <span class="webinar-date">📅 <?= date('d/m/Y H:i', strtotime($webinar['fecha'])) ?></span>
+                        <?php endif; ?>
+                        <?php if (!empty($webinar['categoria'])): ?>
+                            <span class="webinar-category">🏷️ <?= htmlspecialchars($webinar['categoria']) ?></span>
                         <?php endif; ?>
                         <span class="webinar-price">$<?= number_format($webinar['precio'] ?? 0, 2) ?></span>
                     </div>
@@ -72,14 +94,6 @@ $mensaje = $mensaje ?? '';
                             <a href="?section=mis_webinars" class="btn-view-owned">
                                 <i class="fas fa-play-circle"></i> Ver en Mis Webinars
                             </a>
-                            <?php if (!empty($webinar['enlace_acceso'])): ?>
-                                <a href="<?= htmlspecialchars($webinar['enlace_acceso']) ?>"
-                                   class="btn-access"
-                                   target="_blank"
-                                   aria-label="Acceder al webinar">
-                                    <i class="fas fa-external-link-alt"></i> Acceder ahora
-                                </a>
-                            <?php endif; ?>
                         </div>
                     <?php else: ?>
                         <!-- Mostrar formulario de compra normal -->
@@ -136,8 +150,8 @@ $mensaje = $mensaje ?? '';
             <?php foreach ($cartItems as $item): ?>
                 <li class="cart-item">
                     <div class="cart-item-image">
-                        <?php if (!empty($item['imagen_url'])): ?>
-                            <img src="<?= htmlspecialchars($item['imagen_url']) ?>"
+                        <?php if (!empty($item['imagen'])): ?>
+                            <img src="<?= htmlspecialchars($item['imagen']) ?>"
                                  alt="<?= htmlspecialchars($item['titulo']) ?>"
                                  onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                             <div class="cart-thumbnail-placeholder" style="display: none;">
@@ -151,7 +165,9 @@ $mensaje = $mensaje ?? '';
                     </div>
                     <div class="item-info">
                         <h5><?= htmlspecialchars($item['titulo']) ?></h5>
-                        <p class="item-instructor"><?= htmlspecialchars($item['instructor'] ?? 'IMCYC') ?></p>
+                        <?php if (!empty($item['duracion'])): ?>
+                            <p class="item-duration">⏱️ <?= htmlspecialchars($item['duracion']) ?></p>
+                        <?php endif; ?>
                         <p class="item-price">$<?= number_format($item['precio_unitario'] ?? 0, 2) ?></p>
                     </div>
 
@@ -204,6 +220,7 @@ $mensaje = $mensaje ?? '';
         --secondary-color: #2c3e50;
         --success-color: #27ae60;
         --danger-color: #e74c3c;
+        --warning-color: #f39c12;
         --text-color: #2c3e50;
         --bg-color: #ffffff;
         --border-color: #ecf0f1;
@@ -226,6 +243,38 @@ $mensaje = $mensaje ?? '';
         --bg-color: #2c3e50;
         --border-color: #34495e;
         --owned-bg: #1e3d32;
+    }
+
+    /* Filtros de categoría */
+    .category-filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-bottom: 2rem;
+        padding: 1rem;
+        background: var(--bg-color);
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .filter-btn {
+        padding: 0.5rem 1rem;
+        background: #f8f9fa;
+        color: var(--text-color);
+        text-decoration: none;
+        border-radius: 20px;
+        transition: all 0.2s;
+        font-size: 0.9rem;
+    }
+
+    .filter-btn:hover {
+        background: var(--primary-color);
+        color: white;
+    }
+
+    .filter-btn.active {
+        background: var(--primary-color);
+        color: white;
     }
 
     /* Tarjetas de webinars */
@@ -289,13 +338,6 @@ $mensaje = $mensaje ?? '';
         line-height: 1.4;
     }
 
-    .webinar-instructor {
-        color: #7f8c8d;
-        font-size: 0.9rem;
-        margin: 0 0 0.75rem;
-        font-weight: 500;
-    }
-
     .webinar-description {
         color: #666;
         font-size: 0.85rem;
@@ -310,7 +352,7 @@ $mensaje = $mensaje ?? '';
         margin-bottom: 1.25rem;
     }
 
-    .webinar-duration, .webinar-date {
+    .webinar-duration, .webinar-date, .webinar-category {
         font-size: 0.85rem;
         color: #7f8c8d;
     }
@@ -377,21 +419,6 @@ $mensaje = $mensaje ?? '';
 
     .btn-view-owned:hover {
         background-color: #219a52;
-    }
-
-    .btn-access {
-        display: inline-block;
-        text-align: center;
-        padding: 0.75rem;
-        background: var(--secondary-color);
-        color: white;
-        border-radius: 8px;
-        text-decoration: none;
-        transition: background-color 0.2s;
-    }
-
-    .btn-access:hover {
-        background-color: #1e2b38;
     }
 
     .btn-details {
@@ -592,7 +619,7 @@ $mensaje = $mensaje ?? '';
         overflow: hidden;
     }
 
-    .item-instructor {
+    .item-duration {
         margin: 0;
         font-size: 0.8rem;
         color: #7f8c8d;
@@ -668,7 +695,7 @@ $mensaje = $mensaje ?? '';
         background-color: #219a52;
     }
 
-    /* Alerta de mensajes */
+    /* Alertas de mensajes */
     .alert-webinar {
         background-color: #d1ecf1;
         color: #0c5460;
@@ -679,10 +706,26 @@ $mensaje = $mensaje ?? '';
         border: 1px solid #bee5eb;
     }
 
+    .alert-error {
+        background-color: #f8d7da;
+        color: #721c24;
+        padding: 1rem;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        text-align: center;
+        border: 1px solid #f5c6cb;
+    }
+
     body.dark-mode .alert-webinar {
         background-color: #1e3d32;
         color: #d4edda;
         border-color: #27ae60;
+    }
+
+    body.dark-mode .alert-error {
+        background-color: #3d1e1e;
+        color: #f8d7da;
+        border-color: #e74c3c;
     }
 
     @media (max-width: 768px) {
@@ -698,6 +741,15 @@ $mensaje = $mensaje ?? '';
 
         .modal-content {
             width: 95%;
+        }
+
+        .category-filters {
+            padding: 0.5rem;
+        }
+
+        .filter-btn {
+            font-size: 0.8rem;
+            padding: 0.4rem 0.8rem;
         }
     }
 </style>
@@ -716,10 +768,15 @@ $mensaje = $mensaje ?? '';
         if (webinar) {
             document.getElementById('modalTitle').textContent = webinar.titulo;
             document.getElementById('modalBody').innerHTML = `
-                <p><strong>Instructor:</strong> ${webinar.instructor || 'IMCYC'}</p>
                 ${webinar.descripcion ? `<p><strong>Descripción:</strong> ${webinar.descripcion}</p>` : ''}
                 ${webinar.duracion ? `<p><strong>Duración:</strong> ${webinar.duracion}</p>` : ''}
-                ${webinar.fecha_webinar ? `<p><strong>Fecha:</strong> ${new Date(webinar.fecha_webinar).toLocaleDateString('es-ES')}</p>` : ''}
+                ${webinar.fecha ? `<p><strong>Fecha:</strong> ${new Date(webinar.fecha).toLocaleDateString('es-ES', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                })}</p>` : ''}
                 ${webinar.categoria ? `<p><strong>Categoría:</strong> ${webinar.categoria}</p>` : ''}
                 <p><strong>Precio:</strong> $${parseFloat(webinar.precio || 0).toLocaleString('es-MX', {minimumFractionDigits: 2})}</p>
             `;

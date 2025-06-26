@@ -152,7 +152,7 @@ class DatabaseW
         $cart_id = $this->getOrCreateUserCart($user_id);
 
         $stmt = $this->pdo->prepare("
-            SELECT ciw.*, w.titulo, w.descripcion, w.fecha, w.duracion, w.imagen, w.url_acceso
+            SELECT ciw.*, w.titulo, w.descripcion, w.fecha, w.duracion, w.imagen
             FROM carrito_items_webinars ciw
             JOIN webinars w ON ciw.webinar_id = w.webinar_id
             WHERE ciw.carrito_id = ?
@@ -225,7 +225,6 @@ class DatabaseW
         $stmt = $this->pdo->query("
             SELECT * FROM webinars
             WHERE activo = 1
-            AND fecha >= NOW()
             ORDER BY fecha ASC
         ");
         return $stmt->fetchAll();

@@ -9,6 +9,10 @@ require_once 'auth.php';
 require_once 'connectionw.php';
 $database = new DatabaseW();
 
+// Crear el modelo con la dependencia
+require_once 'webinars/models.php';
+$model = new WebinarModel($database);
+
 $user_id = $_SESSION['user_id'];
 $mensaje = '';
 $error = '';
@@ -36,33 +40,33 @@ try {
         }
 
         // Obtener información del webinar
-        $webinar = $database->getWebinarById($webinar_id);
+        $webinar = $model->getWebinarById($webinar_id);
         if (!$webinar || !isset($webinar['precio'])) {
             throw new Exception("El webinar solicitado no existe");
         }
 
         // Verificar si el usuario ya tiene acceso a este webinar
-        if ($database->hasUserAccessToWebinar($user_id, $webinar_id)) {
+        if ($model->hasUserAccessToWebinar($user_id, $webinar_id)) {
             throw new Exception("Ya tienes acceso a este webinar. Puedes encontrarlo en tu biblioteca personal.");
         }
 
         // Lógica de acciones
         if (isset($_POST['add_to_cart'])) {
-            if ($database->isWebinarInCart($user_id, $webinar_id)) {
+            if ($model->isWebinarInCart($user_id, $webinar_id)) {
                 $mensaje = "⚠️ Ya tienes este webinar en el carrito";
             } else {
-                $database->addToCart($user_id, $webinar_id, $quantity);
+                $model->addToCart($user_id, $webinar_id, $quantity);
                 $mensaje = "✅ Webinar agregado al carrito";
             }
         } elseif (isset($_POST['update_quantity'])) {
-            $database->updateCartItem($user_id, $webinar_id, $quantity);
+            $model->updateCartItem($user_id, $webinar_id, $quantity);
             $mensaje = "🔄 Cantidad actualizada";
         } elseif (isset($_POST['remove_item'])) {
-            $database->removeCartItem($user_id, $webinar_id);
+            $model->removeCartItem($user_id, $webinar_id);
             $mensaje = "🗑️ Webinar eliminado del carrito";
         } elseif (isset($_POST['checkout'])) {
             // Lógica de pago
-            $cartItems = $database->getCartItems($user_id);
+            $cartItems = $model->getCartItems($user_id);
 
             if (empty($cartItems)) {
                 throw new Exception("El carrito está vacío");
@@ -76,7 +80,7 @@ try {
 
             // Verificar nuevamente que no tenga acceso a ningún webinar del carrito
             foreach ($cartItems as $item) {
-                if ($database->hasUserAccessToWebinar($user_id, $item['webinar_id'])) {
+                if ($model->hasUserAccessToWebinar($user_id, $item['webinar_id'])) {
                     throw new Exception("Uno o más webinars en tu carrito ya tienes acceso. Por favor, revisa tu biblioteca.");
                 }
             }
@@ -97,15 +101,10 @@ try {
             $order_id = 'WEB_' . time() . '_' . $user_id;
 
             // Registrar pedido
-            $database->registerOrder(
-                $user_id,
-                json_encode($orderItems),
-                $total,
-                $order_id
-            );
+            $model->registerOrder($user_id, $order_id);
 
             // Limpiar carrito
-            $database->clearCart($user_id);
+            $model->clearCart($user_id);
 
             header("Location: pedidos.php");
             exit;
@@ -119,11 +118,11 @@ try {
                 $webinar_id = filter_input(INPUT_GET, 'id', FILTER_SANITIZE_NUMBER_INT);
 
                 // Verificar acceso
-                if (!$database->hasUserAccessToWebinar($user_id, $webinar_id)) {
+                if (!$model->hasUserAccessToWebinar($user_id, $webinar_id)) {
                     throw new Exception("No tienes acceso a este webinar");
                 }
 
-                $webinar = $database->getWebinarById($webinar_id);
+                $webinar = $model->getWebinarById($webinar_id);
                 if (!$webinar) {
                     throw new Exception("Webinar no encontrado");
                 }
@@ -145,8 +144,8 @@ try {
     }
 } catch (Exception $e) {
     // Manejo de errores
-    if (method_exists($database, 'rollBack')) {
-        $database->rollBack();
+    if (method_exists($model, 'rollBack')) {
+        $model->rollBack();
     }
     error_log("Error en controlador webinars: " . $e->getMessage());
     $error = $e->getMessage();
@@ -155,27 +154,29 @@ try {
 // Obtener datos para la vista
 try {
     // Obtener todos los webinars activos
-    $webinars = $database->getActiveWebinars();
+    $webinars = $model->getActiveWebinars();
 
     // Agregar información de estado para cada webinar
     foreach ($webinars as &$webinar) {
-        $webinar['user_has_access'] = $database->hasUserAccessToWebinar($user_id, $webinar['webinar_id']);
-        $webinar['in_cart'] = $database->isWebinarInCart($user_id, $webinar['webinar_id']);
+        $webinar['user_has_access'] = $model->hasUserAccessToWebinar($user_id, $webinar['webinar_id']);
+        $webinar['in_cart'] = $model->isWebinarInCart($user_id, $webinar['webinar_id']);
+        $webinar['is_owned'] = $webinar['user_has_access']; // Para compatibilidad con la vista
     }
 
-    $cartItems = $database->getCartItems($user_id);
-    $cartItemCount = $database->getCartItemCount($user_id);
-    $categories = $database->getCategories();
+    $cartItems = $model->getCartItems($user_id);
+    $cartItemCount = $model->getCartItemCount($user_id);
+    $categories = $model->getCategories();
 
     // Filtrar por categoría si se especifica
     if (isset($_GET['category']) && !empty($_GET['category'])) {
         $selected_category = filter_input(INPUT_GET, 'category', FILTER_SANITIZE_STRING);
-        $webinars = $database->getWebinarsByCategory($selected_category);
+        $webinars = $model->getWebinarsByCategory($selected_category);
 
         // Agregar información de estado para webinars filtrados
         foreach ($webinars as &$webinar) {
-            $webinar['user_has_access'] = $database->hasUserAccessToWebinar($user_id, $webinar['webinar_id']);
-            $webinar['in_cart'] = $database->isWebinarInCart($user_id, $webinar['webinar_id']);
+            $webinar['user_has_access'] = $model->hasUserAccessToWebinar($user_id, $webinar['webinar_id']);
+            $webinar['in_cart'] = $model->isWebinarInCart($user_id, $webinar['webinar_id']);
+            $webinar['is_owned'] = $webinar['user_has_access']; // Para compatibilidad con la vista
         }
     }
 

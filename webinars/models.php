@@ -171,8 +171,20 @@ class WebinarModel
             $items
         ));
 
+        // Preparar items para el pedido
+        $orderItems = [];
+        foreach ($items as $item) {
+            $orderItems[] = [
+                'webinar_id' => $item['webinar_id'],
+                'titulo' => $item['titulo'],
+                'cantidad' => $item['cantidad'],
+                'precio' => $item['precio_unitario'],
+                'tipo' => 'webinar'
+            ];
+        }
+
         // Convertir items a formato JSON
-        $items_json = json_encode($items);
+        $items_json = json_encode($orderItems);
 
         return $this->db->registerOrder($user_id, $items_json, $total, $order_id);
     }
