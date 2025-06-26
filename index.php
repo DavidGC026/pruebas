@@ -13,8 +13,29 @@ try {
 }
 
 // Función para obtener imagen de portada
-function getImageUrl($name, $type = 'libro', $archivo_url = null)
+function getImageUrl($name, $type = 'libro', $archivo_url = null, $imagen_webinar = null)
 {
+    // Para webinars, usar la ruta de la tabla pero dentro de covers/webinars/
+    if ($type === 'webinar' && $imagen_webinar) {
+        // Extraer solo el nombre del archivo de la ruta de la tabla
+        $filename = basename($imagen_webinar);
+        $imagePath = 'covers/webinars/' . $filename;
+        if (file_exists($imagePath)) {
+            return $imagePath;
+        }
+        
+        // Si no existe el archivo específico, intentar con diferentes extensiones
+        $nameWithoutExt = pathinfo($filename, PATHINFO_FILENAME);
+        $extensions = ['jpg', 'jpeg', 'png', 'webp', 'JPG', 'JPEG', 'PNG'];
+        
+        foreach ($extensions as $ext) {
+            $testPath = 'covers/webinars/' . $nameWithoutExt . '.' . $ext;
+            if (file_exists($testPath)) {
+                return $testPath;
+            }
+        }
+    }
+
     // Para ebooks, si tenemos archivo_url, usamos el método del PDF
     if ($type === 'ebook' && $archivo_url) {
         $filename = str_replace('/var/www/sources/libros/', '', $archivo_url);
@@ -737,7 +758,7 @@ $products = $products_stmt->fetchAll(PDO::FETCH_ASSOC);
                     <?php foreach ($webinars as $webinar): ?>
                         <div class="product-card">
                             <div class="book-cover-container">
-                                <img src="<?php echo !empty($webinar['imagen']) ? htmlspecialchars($webinar['imagen']) : getImageUrl($webinar['titulo'], 'webinar'); ?>"
+                                <img src="<?php echo getImageUrl($webinar['titulo'], 'webinar', null, $webinar['imagen']); ?>"
                                     alt="<?php echo htmlspecialchars($webinar['titulo']); ?>" class="product-image"
                                     onerror="this.src='covers/default_webinar.svg'">
                             </div>
